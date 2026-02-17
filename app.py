@@ -2,6 +2,7 @@ import streamlit as st
 import os
 from openpyxl import load_workbook
 from io import BytesIO
+import zipfile
 
 st.set_page_config(page_title="Excel Auto Processor", layout="centered")
 
@@ -25,21 +26,11 @@ st.header("Step 1: Delete Old Files")
 
 if st.button("🗑 Delete Old Files"):
 
-    files_deleted = False
-
     for f in list(file_map.keys()) + list(file_map.values()):
 
         if os.path.exists(f):
-
             os.remove(f)
-
             st.success(f"Deleted: {f}")
-
-            files_deleted = True
-
-    if not files_deleted:
-
-        st.info("No old files found")
 
 
 # =====================================================
@@ -58,17 +49,12 @@ uploaded_files = st.file_uploader(
 
 )
 
-uploaded_names = []
-
 if uploaded_files:
 
     for file in uploaded_files:
 
         with open(file.name, "wb") as f:
-
             f.write(file.getbuffer())
-
-        uploaded_names.append(file.name)
 
         st.success(f"Uploaded: {file.name}")
 
@@ -82,104 +68,80 @@ st.header("Step 3: Process and Download")
 moves = [
 
     ('qYY', 'r'),
-
     ('qY', 'qYY'),
-
     ('q', 'qY'),
-
     ('pYY', 'q'),
-
     ('pY', 'pYY'),
-
     ('Y', 'pY')
 
 ]
 
 
-if st.button("⚙ Process Files"):
+if st.button("⚙ Process Files and Prepare Download"):
 
-    for input_file, output_file in file_map.items():
+    zip_buffer = BytesIO()
 
-        if not os.path.exists(input_file):
+    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
 
-            st.error(f"{input_file} not uploaded")
+        for input_file, output_file in file_map.items():
 
-            continue
+            if not os.path.exists(input_file):
 
-        wb = load_workbook(input_file)
+                st.error(f"{input_file} not uploaded")
+                continue
 
-        data_cache = {}
+            wb = load_workbook(input_file)
 
-        # Read Data
+            data_cache = {}
 
-        for src, _ in moves:
+            # Read
+            for src, _ in moves:
 
-            sheet = wb[src]
+                sheet = wb[src]
 
-            data_cache[src] = [
+                data_cache[src] = [
 
-                [sheet.cell(row=r, column=c).value for c in range(1, 16)]
+                    [sheet.cell(row=r, column=c).value for c in range(1, 16)]
 
-                for r in range(2, 52)
+                    for r in range(2, 52)
 
-            ]
+                ]
 
+            # Paste
+            for src, dst in moves:
 
-        # Paste Data
+                sheet = wb[dst]
 
-        for src, dst in moves:
+                for r_idx, row in enumerate(data_cache[src], start=2):
 
-            sheet = wb[dst]
+                    for c_idx, val in enumerate(row, start=1):
 
-            for r_idx, row in enumerate(data_cache[src], start=2):
-
-                for c_idx, val in enumerate(row, start=1):
-
-                    sheet.cell(row=r_idx, column=c_idx).value = val
-
-
-        # Save in memory
-
-        output = BytesIO()
-
-        wb.save(output)
-
-        output.seek(0)
-
-        st.success(f"Processed: {output_file}")
+                        sheet.cell(row=r_idx, column=c_idx).value = val
 
 
-        # =====================================================
-        # STEP 4: DOWNLOAD FILE
-        # =====================================================
+            # Save each file to memory
+            file_buffer = BytesIO()
+            wb.save(file_buffer)
 
-        st.download_button(
+            zip_file.writestr(output_file, file_buffer.getvalue())
 
-            label=f"⬇ Download {output_file}",
-
-            data=output,
-
-            file_name=output_file,
-
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-        )
+            st.success(f"Processed: {output_file}")
 
 
-# =====================================================
-# SHOW CURRENT FILES
-# =====================================================
+    zip_buffer.seek(0)
 
-st.header("📁 Files in System")
+    # =====================================================
+    # SINGLE DOWNLOAD BUTTON
+    # =====================================================
 
-files = [f for f in os.listdir() if f.endswith(".xlsx")]
+    st.download_button(
 
-if files:
+        label="⬇ Download ALL Files (ABC, XYZ, PQR)",
 
-    for f in files:
+        data=zip_buffer,
 
-        st.write(f)
+        file_name="Processed_Excel_Files.zip",
 
-else:
+        mime="application/zip"
 
-    st.write("No Excel files present")
+    )
