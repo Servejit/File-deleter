@@ -1,167 +1,196 @@
 import streamlit as st
 import os
-from openpyxl import load_workbook
-from io import BytesIO
 import zipfile
+from io import BytesIO
+from openpyxl import load_workbook
 
-# =====================================================
-# PAGE CONFIG
-# =====================================================
+# =========================================================
+# CONFIGURATION
+# =========================================================
 
-st.set_page_config(page_title="Excel Auto Processor", layout="centered")
+st.set_page_config(
+    page_title="Excel Auto Processor",
+    layout="centered"
+)
 
 st.title("📊 Excel Auto Processor System")
 
-# =====================================================
-# FILE MAP
-# =====================================================
+# =========================================================
+# FILE CONFIG
+# =========================================================
 
-file_map = {
-    'abc.xlsx': 'ABC.xlsx',
-    'xyz.xlsx': 'XYZ.xlsx',
-    'pqr.xlsx': 'PQR.xlsx'
+INPUT_FILES = ["abc.xlsx", "xyz.xlsx", "pqr.xlsx"]
+
+OUTPUT_MAP = {
+    "abc.xlsx": "ABC.xlsx",
+    "xyz.xlsx": "XYZ.xlsx",
+    "pqr.xlsx": "PQR.xlsx"
 }
 
-# =====================================================
-# STEP 1: DELETE OLD FILES
-# =====================================================
+# Sheet move logic
+MOVE_RULES = [
+    ("qYY", "r"),
+    ("qY", "qYY"),
+    ("q", "qY"),
+    ("pYY", "q"),
+    ("pY", "pYY"),
+    ("Y", "pY")
+]
 
-st.header("Step 1: Delete Old Files")
+# =========================================================
+# FUNCTION : DELETE FILES
+# =========================================================
 
-if st.button("🗑 Delete Old Files", key="delete_btn"):
+def delete_old_files():
 
-    deleted = False
+    deleted_any = False
 
-    for f in list(file_map.keys()) + list(file_map.values()):
+    for file in INPUT_FILES + list(OUTPUT_MAP.values()):
 
-        if os.path.exists(f):
-            os.remove(f)
-            st.success(f"Deleted: {f}")
-            deleted = True
+        if os.path.exists(file):
 
-    if not deleted:
+            os.remove(file)
+            st.success(f"Deleted: {file}")
+            deleted_any = True
+
+    if not deleted_any:
         st.info("No old files found")
 
 
-# =====================================================
-# STEP 2: UPLOAD NEW FILES
-# =====================================================
+# =========================================================
+# FUNCTION : SAVE UPLOADED FILES
+# =========================================================
 
-st.header("Step 2: Upload New Files")
+def save_uploaded_files(files):
 
-uploaded_files = st.file_uploader(
+    for file in files:
+
+        with open(file.name, "wb") as f:
+            f.write(file.getbuffer())
+
+        st.success(f"Uploaded: {file.name}")
+
+
+# =========================================================
+# FUNCTION : PROCESS FILE
+# =========================================================
+
+def process_excel(input_file):
+
+    wb = load_workbook(input_file)
+
+    cache = {}
+
+    # READ DATA
+    for source, target in MOVE_RULES:
+
+        if source in wb.sheetnames:
+
+            sheet = wb[source]
+
+            cache[source] = [
+
+                [sheet.cell(row=r, column=c).value for c in range(1, 16)]
+
+                for r in range(2, 52)
+
+            ]
+
+    # WRITE DATA
+    for source, target in MOVE_RULES:
+
+        if target in wb.sheetnames and source in cache:
+
+            sheet = wb[target]
+
+            for r_index, row in enumerate(cache[source], start=2):
+
+                for c_index, value in enumerate(row, start=1):
+
+                    sheet.cell(row=r_index, column=c_index).value = value
+
+    buffer = BytesIO()
+
+    wb.save(buffer)
+
+    return buffer.getvalue()
+
+
+# =========================================================
+# STEP 1 : DELETE
+# =========================================================
+
+st.header("Step 1: Delete Old Files")
+
+if st.button("🗑 Delete Old Files"):
+
+    delete_old_files()
+
+
+# =========================================================
+# STEP 2 : UPLOAD
+# =========================================================
+
+st.header("Step 2: Upload Files")
+
+uploaded = st.file_uploader(
 
     "Upload abc.xlsx, xyz.xlsx, pqr.xlsx",
 
     type=["xlsx"],
 
-    accept_multiple_files=True,
-
-    key="file_uploader"
+    accept_multiple_files=True
 
 )
 
-if uploaded_files:
+if uploaded:
 
-    for file in uploaded_files:
-
-        with open(file.name, "wb") as f:
-            f.write(file.getbuffer())
-
-        st.success(f"Uploaded successfully: {file.name}")
+    save_uploaded_files(uploaded)
 
 
-# =====================================================
-# STEP 3: PROCESS FILES
-# =====================================================
+# =========================================================
+# STEP 3 : PROCESS
+# =========================================================
 
 st.header("Step 3: Process and Download")
 
-moves = [
-
-    ('qYY', 'r'),
-    ('qY', 'qYY'),
-    ('q', 'qY'),
-    ('pYY', 'q'),
-    ('pY', 'pYY'),
-    ('Y', 'pY')
-
-]
-
-if st.button("⚙ Process Files and Prepare Download", key="process_btn"):
+if st.button("⚙ Process Files"):
 
     zip_buffer = BytesIO()
 
-    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+    with zipfile.ZipFile(zip_buffer, "w") as zipf:
 
-        for input_file, output_file in file_map.items():
+        for input_file, output_file in OUTPUT_MAP.items():
 
             if not os.path.exists(input_file):
 
-                st.error(f"❌ Missing file: {input_file}")
+                st.error(f"Missing file: {input_file}")
                 continue
 
-            wb = load_workbook(input_file)
+            processed = process_excel(input_file)
 
-            data_cache = {}
+            zipf.writestr(output_file, processed)
 
-            # READ DATA
-            for src, _ in moves:
-
-                if src in wb.sheetnames:
-
-                    sheet = wb[src]
-
-                    data_cache[src] = [
-
-                        [sheet.cell(row=r, column=c).value for c in range(1, 16)]
-
-                        for r in range(2, 52)
-
-                    ]
-
-            # WRITE DATA
-            for src, dst in moves:
-
-                if dst in wb.sheetnames and src in data_cache:
-
-                    sheet = wb[dst]
-
-                    for r_idx, row in enumerate(data_cache[src], start=2):
-
-                        for c_idx, val in enumerate(row, start=1):
-
-                            sheet.cell(row=r_idx, column=c_idx).value = val
-
-
-            # SAVE TO MEMORY
-            file_buffer = BytesIO()
-            wb.save(file_buffer)
-
-            zip_file.writestr(output_file, file_buffer.getvalue())
-
-            st.success(f"✅ Processed: {output_file}")
+            st.success(f"Processed: {output_file}")
 
     zip_buffer.seek(0)
 
     st.download_button(
 
-        label="⬇ Download ALL Files",
+        label="⬇ Download ZIP",
 
         data=zip_buffer,
 
         file_name="Processed_Excel_Files.zip",
 
-        mime="application/zip",
-
-        key="download_btn"
-
+        mime="application/zip"
     )
 
-# =====================================================
-# REFRESH BUTTON
-# =====================================================
 
-if st.button("🔄 Refresh App", key="refresh_btn"):
+# =========================================================
+# REFRESH
+# =========================================================
+
+if st.button("🔄 Refresh"):
 
     st.rerun()
