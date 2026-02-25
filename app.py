@@ -3,17 +3,12 @@ import zipfile
 from io import BytesIO
 from openpyxl import load_workbook
 
-# =====================================================
-# CONFIG
-# =====================================================
-
 st.set_page_config(page_title="Excel Auto Processor", layout="centered")
 
 st.title("📊 Excel Auto Processor System")
 
-
 # =====================================================
-# FILE MAP
+# CONFIG
 # =====================================================
 
 file_map = {
@@ -21,7 +16,6 @@ file_map = {
     "xyz.xlsx": "XYZ.xlsx",
     "pqr.xlsx": "PQR.xlsx"
 }
-
 
 moves = [
     ("qYY", "r"),
@@ -32,54 +26,50 @@ moves = [
     ("Y", "pY")
 ]
 
-
 # =====================================================
 # SESSION STORAGE
 # =====================================================
 
-if "files" not in st.session_state:
-    st.session_state.files = {}
-
+if "uploaded_files" not in st.session_state:
+    st.session_state.uploaded_files = {}
 
 # =====================================================
 # STEP 1 DELETE
 # =====================================================
 
-st.header("Step 1: Delete Old Files")
-
 if st.button("🗑 Delete Old Files"):
 
-    st.session_state.files = {}
+    st.session_state.uploaded_files = {}
 
-    st.success("All files deleted")
+    st.success("Deleted successfully")
 
 
 # =====================================================
-# STEP 2 UPLOAD (FIXED)
+# STEP 2 UPLOAD FORM (FIX)
 # =====================================================
 
-st.header("Step 2: Upload Files")
+with st.form("upload_form"):
 
-uploaded_files = st.file_uploader(
-    "Upload abc.xlsx, xyz.xlsx, pqr.xlsx",
-    type="xlsx",
-    accept_multiple_files=True
-)
+    files = st.file_uploader(
+        "Upload files",
+        type="xlsx",
+        accept_multiple_files=True
+    )
 
-if uploaded_files:
+    upload_btn = st.form_submit_button("Upload")
 
-    for file in uploaded_files:
+    if upload_btn and files:
 
-        st.session_state.files[file.name] = file.getvalue()
+        for file in files:
 
-        st.success(f"Uploaded: {file.name}")
+            st.session_state.uploaded_files[file.name] = file.read()
+
+        st.success("Upload completed")
 
 
 # =====================================================
 # STEP 3 PROCESS
 # =====================================================
-
-st.header("Step 3: Process and Download")
 
 if st.button("⚙ Process Files"):
 
@@ -89,19 +79,17 @@ if st.button("⚙ Process Files"):
 
         for input_name, output_name in file_map.items():
 
-            if input_name not in st.session_state.files:
+            if input_name not in st.session_state.uploaded_files:
 
-                st.error(f"Missing: {input_name}")
+                st.error(f"Missing {input_name}")
 
                 continue
 
-            file_bytes = st.session_state.files[input_name]
-
-            wb = load_workbook(BytesIO(file_bytes))
+            wb = load_workbook(
+                BytesIO(st.session_state.uploaded_files[input_name])
+            )
 
             data_cache = {}
-
-            # READ
 
             for src, dst in moves:
 
@@ -111,13 +99,12 @@ if st.button("⚙ Process Files"):
 
                     data_cache[src] = [
 
-                        [sheet.cell(row=r, column=c).value for c in range(1, 16)]
+                        [sheet.cell(row=r, column=c).value
+                         for c in range(1, 16)]
 
                         for r in range(2, 52)
 
                     ]
-
-            # WRITE
 
             for src, dst in moves:
 
@@ -125,41 +112,25 @@ if st.button("⚙ Process Files"):
 
                     sheet = wb[dst]
 
-                    for r_idx, row in enumerate(data_cache[src], start=2):
+                    for r, row in enumerate(data_cache[src], 2):
 
-                        for c_idx, val in enumerate(row, start=1):
+                        for c, val in enumerate(row, 1):
 
-                            sheet.cell(row=r_idx, column=c_idx).value = val
+                            sheet.cell(r, c).value = val
 
 
-            output_buffer = BytesIO()
+            buffer = BytesIO()
 
-            wb.save(output_buffer)
+            wb.save(buffer)
 
-            zip_file.writestr(output_name, output_buffer.getvalue())
+            zip_file.writestr(output_name, buffer.getvalue())
 
-            st.success(f"Processed: {output_name}")
-
+            st.success(f"Processed {output_name}")
 
     zip_buffer.seek(0)
 
-
     st.download_button(
-
         "⬇ Download ZIP",
-
         zip_buffer,
-
-        "Processed_Excel_Files.zip",
-
-        "application/zip"
+        "Processed.zip"
     )
-
-
-# =====================================================
-# REFRESH
-# =====================================================
-
-if st.button("🔄 Refresh"):
-
-    st.rerun()
