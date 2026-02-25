@@ -4,6 +4,10 @@ from openpyxl import load_workbook
 from io import BytesIO
 import zipfile
 
+# =====================================================
+# PAGE CONFIG
+# =====================================================
+
 st.set_page_config(page_title="Excel Auto Processor", layout="centered")
 
 st.title("📊 Excel Auto Processor System")
@@ -24,13 +28,19 @@ file_map = {
 
 st.header("Step 1: Delete Old Files")
 
-if st.button("🗑 Delete Old Files"):
+if st.button("🗑 Delete Old Files", key="delete_btn"):
+
+    deleted = False
 
     for f in list(file_map.keys()) + list(file_map.values()):
 
         if os.path.exists(f):
             os.remove(f)
             st.success(f"Deleted: {f}")
+            deleted = True
+
+    if not deleted:
+        st.info("No old files found")
 
 
 # =====================================================
@@ -45,7 +55,9 @@ uploaded_files = st.file_uploader(
 
     type=["xlsx"],
 
-    accept_multiple_files=True
+    accept_multiple_files=True,
+
+    key="file_uploader"
 
 )
 
@@ -56,7 +68,7 @@ if uploaded_files:
         with open(file.name, "wb") as f:
             f.write(file.getbuffer())
 
-        st.success(f"Uploaded: {file.name}")
+        st.success(f"Uploaded successfully: {file.name}")
 
 
 # =====================================================
@@ -76,8 +88,7 @@ moves = [
 
 ]
 
-
-if st.button("⚙ Process Files and Prepare Download"):
+if st.button("⚙ Process Files and Prepare Download", key="process_btn"):
 
     zip_buffer = BytesIO()
 
@@ -87,61 +98,70 @@ if st.button("⚙ Process Files and Prepare Download"):
 
             if not os.path.exists(input_file):
 
-                st.error(f"{input_file} not uploaded")
+                st.error(f"❌ Missing file: {input_file}")
                 continue
 
             wb = load_workbook(input_file)
 
             data_cache = {}
 
-            # Read
+            # READ DATA
             for src, _ in moves:
 
-                sheet = wb[src]
+                if src in wb.sheetnames:
 
-                data_cache[src] = [
+                    sheet = wb[src]
 
-                    [sheet.cell(row=r, column=c).value for c in range(1, 16)]
+                    data_cache[src] = [
 
-                    for r in range(2, 52)
+                        [sheet.cell(row=r, column=c).value for c in range(1, 16)]
 
-                ]
+                        for r in range(2, 52)
 
-            # Paste
+                    ]
+
+            # WRITE DATA
             for src, dst in moves:
 
-                sheet = wb[dst]
+                if dst in wb.sheetnames and src in data_cache:
 
-                for r_idx, row in enumerate(data_cache[src], start=2):
+                    sheet = wb[dst]
 
-                    for c_idx, val in enumerate(row, start=1):
+                    for r_idx, row in enumerate(data_cache[src], start=2):
 
-                        sheet.cell(row=r_idx, column=c_idx).value = val
+                        for c_idx, val in enumerate(row, start=1):
+
+                            sheet.cell(row=r_idx, column=c_idx).value = val
 
 
-            # Save each file to memory
+            # SAVE TO MEMORY
             file_buffer = BytesIO()
             wb.save(file_buffer)
 
             zip_file.writestr(output_file, file_buffer.getvalue())
 
-            st.success(f"Processed: {output_file}")
-
+            st.success(f"✅ Processed: {output_file}")
 
     zip_buffer.seek(0)
 
-    # =====================================================
-    # SINGLE DOWNLOAD BUTTON
-    # =====================================================
-
     st.download_button(
 
-        label="⬇ Download ALL Files (ABC, XYZ, PQR)",
+        label="⬇ Download ALL Files",
 
         data=zip_buffer,
 
         file_name="Processed_Excel_Files.zip",
 
-        mime="application/zip"
+        mime="application/zip",
+
+        key="download_btn"
 
     )
+
+# =====================================================
+# REFRESH BUTTON
+# =====================================================
+
+if st.button("🔄 Refresh App", key="refresh_btn"):
+
+    st.rerun()
